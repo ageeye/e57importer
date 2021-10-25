@@ -34,6 +34,7 @@
 import numpy as np
 
 E57_PAGE_CRC     = 4
+E57_PRE_OFFSET   = 256 
 
 
 class E57:
@@ -72,8 +73,8 @@ class E57:
     def extractXML(self):
         # caculate the pages
         # one page include the content and crc cecksum
-        start  = e57.xmlPhysicalOffset % self.pageSize
-        first  = np.array((start-E57_PAGE_CRC).astype(np.uint64))
+        start  = self.xmlPhysicalOffset % self.pageSize
+        first  = np.array((start-E57_PAGE_CRC+E57_PRE_OFFSET).astype(np.uint64))
         diff   = (self.xmlLogicalLength - start).astype(np.uint64)
         pages  = np.full((diff // self.pageSize), self.pageContent, np.uint64)
         modulo = (diff % self.pageSize).astype(np.uint64) 
@@ -88,7 +89,7 @@ class E57:
             xmltxt.extend(np.fromfile(self.filename, np.byte, count=page, offset=offset))
             offset = np.sum([offset, page, E57_PAGE_CRC],dtype=np.uint64)
         
-        return xmltxt.decode('iso-8859-5') # why only this work?, it should be utf-8
+        return xmltxt.decode('utf-8') # why only this work?, it should be utf-8
         
         
     def extractCompressedVector(self):
