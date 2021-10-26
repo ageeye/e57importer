@@ -28,9 +28,6 @@
 # http://www.libe57.org
 # http://paulbourke.net/dataformats/e57/
 
-
-
-
 import numpy as np
 
 E57_PAGE_CRC     = 4
@@ -65,7 +62,8 @@ class E57:
         self.xmlPhysicalOffset  = header['xmlPhysicalOffset'][0]
         self.xmlLogicalLength   = header['xmlLogicalLength'][0]
         self.pageSize           = header['pageSize'][0]
-        self.pageContent        = (self.pageSize - E57_PAGE_CRC).astype(np.uint64)
+        self.pageContent        = (self.pageSize 
+                                    - E57_PAGE_CRC).astype(np.uint64)
         
         if self.checkfile:
             # check file format
@@ -88,13 +86,16 @@ class E57:
         offset = self.xmlPhysicalOffset
         pages[-1] = (pages[-1] + (len(pages)-2)*E57_PAGE_CRC).astype(np.uint64) 
         while (pages[-1] >= self.pageContent):
-            pages = np.append(pages,(pages[-1]-self.pageContent+E57_PAGE_CRC).astype(np.uint64))
+            pages = np.append(pages,(pages[-1]
+                            -self.pageContent+E57_PAGE_CRC).astype(np.uint64))
             pages[-2] = self.pageContent
                 
         # get xml content
         xmltxt = bytearray()
         for page in pages:
-            xmltxt.extend(np.fromfile(self.filename, np.byte, count=page, offset=offset))
+            xmltxt.extend(np.fromfile(self.filename, np.byte,
+                                      count=page, 
+                                      offset=offset))
             offset = np.sum([offset, page, E57_PAGE_CRC],dtype=np.uint64)
         
         return xmltxt.decode('utf-8')
@@ -120,7 +121,8 @@ class E57:
         return parent.iterfind('.//e57:'+name, self.getNS())      
  
     def readCompressedVectorSectionHeader(self, offset):
-        dcvsh = np.dtype( [ ('sectionId', np.uint8),                     # = E57_COMPRESSED_VECTOR_SECTION
+        dcvsh = np.dtype( [ ('sectionId', np.uint8),                     
+                            # = E57_COMPRESSED_VECTOR_SECTION
     	                    ('reserved1', np.uint8, (7,)),
     					    ('sectionLogicalLength', np.uint64),
                             ('dataPhysicalOffset', np.uint64),
@@ -160,7 +162,9 @@ class E57:
                 cv = self.readCompressedVectorSectionHeader(pos)
                 dh = self.readDataPacketHeader(cv['dataPhysicalOffset'][0])
                 
-                nex = np.fromfile(self.filename, np.int8, count=1, offset=cv['dataPhysicalOffset'][0]+dh['packetLogicalLengthMinus1'][0])[0]
+                nex = np.fromfile(self.filename, np.int8, count=1, 
+                                    offset=cv['dataPhysicalOffset'][0]+
+                                    dh['packetLogicalLengthMinus1'][0])[0]
                 print('next:',nex)
                 
                 
@@ -170,7 +174,8 @@ class E57:
                 print('sectionLogicalLength: ', cv['sectionLogicalLength'][0])
                 print('filePhysicalLength: ',self.filePhysicalLength)
                 print('dataPhysicalOffset', cv['dataPhysicalOffset'][0])
-                print('packetLogicalLengthMinus1', dh['packetLogicalLengthMinus1'][0])
+                print('packetLogicalLengthMinus1', 
+                        dh['packetLogicalLengthMinus1'][0])
                 print('bytestreamCount', dh['bytestreamCount'][0])
 
 # testing   
