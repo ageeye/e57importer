@@ -36,6 +36,7 @@ import numpy as np
 E57_PAGE_CRC     = 4
 E57_STD_PAGE_SIZE = 1024
 E57_COMPRESSED_VECTOR_SECTION = 1
+E57_DATA_PACKET = 1
 E57_DATA_PACKET_MAX = (64*E57_STD_PAGE_SIZE)
 
 class E57:
@@ -124,16 +125,17 @@ class E57:
                             ('indexPhysicalOffset', np.uint64) ])
         result = np.fromfile(self.filename, dcvsh, count=1, offset=offset)   
         if not (result['sectionId'][0]==E57_COMPRESSED_VECTOR_SECTION):
-            raise ValueError('No compressed vector section.')
+            raise ValueError('No compressed vector section.') 
         return result   
         
     def readDataPacketHeader(self, offset):
         ddph = np.dtype( [ ('packetType', np.uint8),
     	                   ('packetFlags', np.uint8),
-    					   ('packetLogicalLengthMinus1', np.uint64),
-                           ('bytestreamCount', np.uint64)])
+    					   ('packetLogicalLengthMinus1', np.uint16),
+                           ('bytestreamCount', np.uint16)])
         result = np.fromfile(self.filename, ddph, count=1, offset=offset)    
-        if not (result['packetType'][0]==E57_DATA_PACKET):                   
+        if not (result['packetType'][0]==E57_DATA_PACKET):
+            raise ValueError('No data packet.')                    
         return result   
         
     def bitsNeeded(self, maximum, minimum):
@@ -162,7 +164,8 @@ class E57:
                 print('sectionLogicalLength: ', cv['sectionLogicalLength'][0])
                 print('filePhysicalLength: ',self.filePhysicalLength)
                 print('dataPhysicalOffset', cv['dataPhysicalOffset'][0])
-                print('packetType', dh['packetType'][0])
+                print('packetLogicalLengthMinus1', dh['packetLogicalLengthMinus1'][0])
+                print('bytestreamCount', dh['bytestreamCount'][0])
 
 # testing   
 # test data
