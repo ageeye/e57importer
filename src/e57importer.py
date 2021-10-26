@@ -91,13 +91,13 @@ class E57:
             xmltxt.extend(np.fromfile(self.filename, np.byte, count=page, offset=offset))
             offset = np.sum([offset, page, E57_PAGE_CRC],dtype=np.uint64)
         
-        #print(xmltxt)
         return xmltxt.decode('utf-8')
         
         
     def buildRoot(self):
         import xml.etree.ElementTree as ET
         xmltxt = self.extractXML()
+        #print(xmltxt)
         self.root = ET.fromstring(xmltxt) 
         
     def getNS(self):
@@ -113,21 +113,41 @@ class E57:
             parent = self.root
         return parent.iterfind('.//e57:'+name, self.getNS())
         
+        
+    def bitsNeeded(self, mi, ma):
+        # get min & max as text
+        mima = np.array([mi, ma])
+        mima = mima.astype(np.float64)
+        mima = mima.view(np.int64)
+        comb = mima[0] or mima[1]
+        bits = np.base_repr(np.abs(comb))
+        bits = bits[1:] # remove sign
+        f = 0
+        for b in bits:
+            if b=='0':
+                f+=1
+            else:
+                break
+        return (64 - f)       
+         
+        
     def extractCompressedVector(self):
         data = self.findElement('data3D')
         for pts in self.iterElements('points'):
             if (pts.attrib['type']=='CompressedVector'):
-                pos = pts.attrib['fileOffset']
-                cnt = pts.attrib['recordCount']
+                pos = int(pts.attrib['fileOffset'])
+                cnt = int(pts.attrib['recordCount'])
                 
                 proto = self.findElement('prototype', pts)
                 cx = self.findElement('cartesianX', proto)
-                xmin = cx.attrib['minimum']
-                
+                bn = self.bitsNeeded(cx.attrib['minimum'],cx.attrib['maximum'])
+                  
+                pre = np.fromfile(self.filename, np.byte, count=1, offset=pos)[0]
         
                 print(pos)
                 print(cnt)
-                print(xmin)
+                print(bn)
+                print(pre)
 
 # testing   
 # test data
