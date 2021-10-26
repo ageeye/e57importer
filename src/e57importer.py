@@ -34,6 +34,9 @@
 import numpy as np
 
 E57_PAGE_CRC     = 4
+E57_STD_PAGE_SIZE = 1024
+E57_COMPRESSED_VECTOR_SECTION = 1
+E57_DATA_PACKET_MAX = (64*E57_STD_PAGE_SIZE)
 
 class E57:
 
@@ -111,25 +114,33 @@ class E57:
     def iterElements(self, name, parent=None):
         if (parent is None):
             parent = self.root
-        return parent.iterfind('.//e57:'+name, self.getNS())
+        return parent.iterfind('.//e57:'+name, self.getNS())      
+ 
+    def readCompressedVectorSectionHeader(self, offset):
+        dcvsh = np.dtype( [ ('sectionId', np.uint8),                     # = E57_COMPRESSED_VECTOR_SECTION
+    	                    ('reserved1', np.uint8, (7,)),
+    					    ('sectionLogicalLength', np.uint64),
+                            ('dataPhysicalOffset', np.uint64),
+                            ('indexPhysicalOffset', np.uint64) ])
+        result = np.fromfile(self.filename, dcvsh, count=1, offset=offset)   
+        if not (result['sectionId'][0]==E57_COMPRESSED_VECTOR_SECTION):
+            raise ValueError('No compressed vector section.')
+        return result   
         
+    def readDataPacketHeader(self, offset):
+        ddph = np.dtype( [ ('packetType', np.uint8),
+    	                   ('packetFlags', np.uint8),
+    					   ('packetLogicalLengthMinus1', np.uint64),
+                           ('bytestreamCount', np.uint64)])
+        result = np.fromfile(self.filename, ddph, count=1, offset=offset)    
+        if not (result['packetType'][0]==E57_DATA_PACKET):                   
+        return result   
         
-    def bitsNeeded(self, mi, ma):
-        # get min & max as text
-        mima = np.array([mi, ma])
-        mima = mima.astype(np.float64)
-        mima = mima.view(np.int64)
-        comb = mima[0] or mima[1]
-        bits = np.base_repr(np.abs(comb))
-        bits = bits[1:] # remove sign
-        f = 0
-        for b in bits:
-            if b=='0':
-                f+=1
-            else:
-                break
-        return (64 - f)       
-         
+    def bitsNeeded(self, maximum, minimum):
+        # like the c variant
+        stateCountMinus1 = maximum - minimum
+        # .... NOTE: Todo
+        return None
         
     def extractCompressedVector(self):
         data = self.findElement('data3D')
@@ -140,14 +151,18 @@ class E57:
                 
                 proto = self.findElement('prototype', pts)
                 cx = self.findElement('cartesianX', proto)
-                bn = self.bitsNeeded(cx.attrib['minimum'],cx.attrib['maximum'])
+                
                   
-                pre = np.fromfile(self.filename, np.byte, count=1, offset=pos)[0]
+                cv = self.readCompressedVectorSectionHeader(pos)
+                dh = self.readDataPacketHeader(cv['dataPhysicalOffset'][0])
+                
         
                 print(pos)
                 print(cnt)
-                print(bn)
-                print(pre)
+                print('sectionLogicalLength: ', cv['sectionLogicalLength'][0])
+                print('filePhysicalLength: ',self.filePhysicalLength)
+                print('dataPhysicalOffset', cv['dataPhysicalOffset'][0])
+                print('packetType', dh['packetType'][0])
 
 # testing   
 # test data
