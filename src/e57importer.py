@@ -36,7 +36,9 @@ import numpy as np
 E57_PAGE_CRC     = 4
 E57_STD_PAGE_SIZE = 1024
 E57_COMPRESSED_VECTOR_SECTION = 1
-E57_DATA_PACKET = 1
+E57_INDEX_PACKET = 0
+E57_DATA_PACKET  = 1
+E57_EMPTY_PACKET = 2 
 E57_DATA_PACKET_MAX = (64*E57_STD_PAGE_SIZE)
 
 class E57:
@@ -157,6 +159,10 @@ class E57:
                   
                 cv = self.readCompressedVectorSectionHeader(pos)
                 dh = self.readDataPacketHeader(cv['dataPhysicalOffset'][0])
+                
+                nex = np.fromfile(self.filename, np.int8, count=1, offset=cv['dataPhysicalOffset'][0]+dh['packetLogicalLengthMinus1'][0])[0]
+                print('next:',nex)
+                
                 
         
                 print(pos)
