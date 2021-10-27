@@ -104,9 +104,22 @@ class E57:
         return E57IndexPacketHeader(self.filename, offset)                       
         
     def bitsNeeded(self, maximum, minimum):
-        # like the c variant
-        stateCountMinus1 = maximum - minimum
-        # .... NOTE: Todo
+        # like the c variant ???
+        state = maximum - minimum
+        if ((0xFFFFFFFF00000000 & state)>0):
+            return 64
+        elif((0xFFFF0000 & state)>0):
+            return 32
+        elif((0xFF00 & state)>0):
+            return 16   
+        elif((0xF0 & state)>0):
+            return 8       
+        elif((0xC & state)>0):
+            return 4   
+        elif((0x2 & state)>0):
+            return 2     
+        elif((0x2 & state)>0):
+            return 1 
         return None
         
     def extractCompressedVector(self):
@@ -119,15 +132,18 @@ class E57:
                 proto = self.findElement('prototype', pts)
                 cx = self.findElement('cartesianX', proto)
                 
+                fx = np.array([cx.attrib['minimum'], cx.attrib['maximum']],
+                                dtype=np.float)
+                print('minimum',cx.attrib['minimum'])
+                print('maximum',cx.attrib['maximum'])
+        
                   
                 cv = self.readCompressedVectorSectionHeader(pos)
                 dh = self.readDataPacketHeader(cv['dataPhysicalOffset'])
                 
                 offset = cv['dataPhysicalOffset']
-                offset += dh['packetLogicalLengthMinus1']
-                
+                offset += dh['packetLogicalLengthMinus1']             
                 idx = self.readIndexPacketHeader(offset)
-                
         
                 print(pos)
                 print(cnt)
