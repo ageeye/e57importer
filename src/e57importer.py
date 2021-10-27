@@ -30,6 +30,10 @@
 
 import numpy as np
 
+
+E57_DEBUG        = True
+
+E57_NS = {'e57':'http://www.astm.org/COMMIT/E57/2010-e57-v1.0'}
 E57_PAGE_CRC     = 4
 E57_STD_PAGE_SIZE = 1024
 E57_COMPRESSED_VECTOR_SECTION = 1
@@ -47,23 +51,19 @@ class E57:
         self.buildRoot()
         
     def readHeader(self):
-        dtheader = np.dtype( [ ('fileSignature', np.dtype('S8')),
-        	 				 ('majorVersion', np.uint32),
-        					 ('minorVersion', np.uint32),
-        					 ('filePhysicalLength', np.uint64),
-        					 ('xmlPhysicalOffset', np.uint64),
-        					 ('xmlLogicalLength', np.uint64),
-        					 ('pageSize', np.uint64) ])
-        header = np.fromfile(self.filename, dtheader, count=1)
-        self.fileSignature      = header['fileSignature'][0].decode()
-        self.majorVersion       = header['majorVersion'][0]
-        self.minorVersion       = header['minorVersion'][0]
-        self.filePhysicalLength = header['filePhysicalLength'][0]
-        self.xmlPhysicalOffset  = header['xmlPhysicalOffset'][0]
-        self.xmlLogicalLength   = header['xmlLogicalLength'][0]
-        self.pageSize           = header['pageSize'][0]
+        header = E57Header(self.filename)
+        self.fileSignature      = header['fileSignature'].decode()
+        self.majorVersion       = header['majorVersion']
+        self.minorVersion       = header['minorVersion']
+        self.filePhysicalLength = header['filePhysicalLength']
+        self.xmlPhysicalOffset  = header['xmlPhysicalOffset']
+        self.xmlLogicalLength   = header['xmlLogicalLength']
+        self.pageSize           = header['pageSize']
         self.pageContent        = (self.pageSize 
                                     - E57_PAGE_CRC).astype(np.uint64)
+                                    
+        # set page size from segment reader
+        SegmentReader.setPageSize(self.pageSize)
         
         if self.checkfile:
             # check file format
@@ -74,32 +74,9 @@ class E57:
                 raise ValueError('File size is not compliant.')
     
     def extractXML(self):
-        # caculate the pages
-        # one page include the content and crc cecksum
-        start  = (self.xmlPhysicalOffset % self.pageSize)
-        first  = np.array((self.pageContent-start).astype(np.uint64))
-        diff   = (self.xmlLogicalLength - first).astype(np.uint64)
-        pages  = np.full((diff // self.pageSize), self.pageContent, np.uint64)
-        modulo = (diff % self.pageSize).astype(np.uint64) 
-        pages = np.append(first, pages)
-        pages = np.append(pages,  np.array((modulo).astype(np.uint64))) 
-        offset = self.xmlPhysicalOffset
-        pages[-1] = (pages[-1] + (len(pages)-2)*E57_PAGE_CRC).astype(np.uint64) 
-        while (pages[-1] >= self.pageContent):
-            pages = np.append(pages,(pages[-1]
-                            -self.pageContent+E57_PAGE_CRC).astype(np.uint64))
-            pages[-2] = self.pageContent
-                
-        # get xml content
-        xmltxt = bytearray()
-        for page in pages:
-            xmltxt.extend(np.fromfile(self.filename, np.byte,
-                                      count=page, 
-                                      offset=offset))
-            offset = np.sum([offset, page, E57_PAGE_CRC],dtype=np.uint64)
-        
-        return xmltxt.decode('utf-8')
-        
+        return SegmentReader(self.filename, 
+                             self.xmlPhysicalOffset,
+                             self.xmlLogicalLength).toXML()
         
     def buildRoot(self):
         import xml.etree.ElementTree as ET
@@ -107,40 +84,24 @@ class E57:
         #print(xmltxt)
         self.root = ET.fromstring(xmltxt) 
         
-    def getNS(self):
-        return {'e57':'http://www.astm.org/COMMIT/E57/2010-e57-v1.0'}
-        
     def findElement(self, name, parent=None):
         if (parent is None):
             parent = self.root
-        return parent.find('e57:'+name, self.getNS())
+        return parent.find('e57:'+name, E57_NS)
         
     def iterElements(self, name, parent=None):
         if (parent is None):
             parent = self.root
-        return parent.iterfind('.//e57:'+name, self.getNS())      
+        return parent.iterfind('.//e57:'+name, E57_NS)      
  
     def readCompressedVectorSectionHeader(self, offset):
-        dcvsh = np.dtype( [ ('sectionId', np.uint8),                     
-                            # = E57_COMPRESSED_VECTOR_SECTION
-    	                    ('reserved1', np.uint8, (7,)),
-    					    ('sectionLogicalLength', np.uint64),
-                            ('dataPhysicalOffset', np.uint64),
-                            ('indexPhysicalOffset', np.uint64) ])
-        result = np.fromfile(self.filename, dcvsh, count=1, offset=offset)   
-        if not (result['sectionId'][0]==E57_COMPRESSED_VECTOR_SECTION):
-            raise ValueError('No compressed vector section.') 
-        return result   
+        return E57CompressedVectorSectionHeader(self.filename, offset)   
         
     def readDataPacketHeader(self, offset):
-        ddph = np.dtype( [ ('packetType', np.uint8),
-    	                   ('packetFlags', np.uint8),
-    					   ('packetLogicalLengthMinus1', np.uint16),
-                           ('bytestreamCount', np.uint16)])
-        result = np.fromfile(self.filename, ddph, count=1, offset=offset)    
-        if not (result['packetType'][0]==E57_DATA_PACKET):
-            raise ValueError('No data packet.')                    
-        return result   
+        return E57DataPacketHeader(self.filename, offset)   
+
+    def readIndexPacketHeader(self, offset):
+        return E57IndexPacketHeader(self.filename, offset)                       
         
     def bitsNeeded(self, maximum, minimum):
         # like the c variant
@@ -160,24 +121,163 @@ class E57:
                 
                   
                 cv = self.readCompressedVectorSectionHeader(pos)
-                dh = self.readDataPacketHeader(cv['dataPhysicalOffset'][0])
+                dh = self.readDataPacketHeader(cv['dataPhysicalOffset'])
                 
-                nex = np.fromfile(self.filename, np.int8, count=1, 
-                                    offset=cv['dataPhysicalOffset'][0]+
-                                    dh['packetLogicalLengthMinus1'][0])[0]
-                print('next:',nex)
+                offset = cv['dataPhysicalOffset']
+                offset += dh['packetLogicalLengthMinus1']
                 
+                idx = self.readIndexPacketHeader(offset)
                 
         
                 print(pos)
                 print(cnt)
-                print('sectionLogicalLength: ', cv['sectionLogicalLength'][0])
+                print('sectionLogicalLength: ', cv['sectionLogicalLength'])
                 print('filePhysicalLength: ',self.filePhysicalLength)
-                print('dataPhysicalOffset', cv['dataPhysicalOffset'][0])
+                print('dataPhysicalOffset', cv['dataPhysicalOffset'])
                 print('packetLogicalLengthMinus1', 
-                        dh['packetLogicalLengthMinus1'][0])
-                print('bytestreamCount', dh['bytestreamCount'][0])
+                        dh['packetLogicalLengthMinus1'])
+                print('bytestreamCount', dh['bytestreamCount'])
 
+
+class SegmentReader:
+    
+    PageSize    = E57_STD_PAGE_SIZE
+    PageContent = E57_STD_PAGE_SIZE - E57_PAGE_CRC
+    
+    @classmethod
+    def setPageSize(cls, ps):
+        cls.PageSize = ps
+        cls.PageContent = cls.PageSize - E57_PAGE_CRC
+    
+    def __init__(self, filename, offset=0, count=1):
+        self.filename  = filename
+        self.offset = offset
+        self.count  = count
+        self.setType()
+        self.setSize()
+        length = self.size * count
+        real_length = length
+        self.position = self.offset
+        
+        # check position in page
+        start  = (self.position  % self.PageSize)
+        first  = np.array([(self.PageContent-start)],dtype=np.uint64)
+        diff   = (length - first[0]).astype(np.uint64)
+        if (first[0]>=length):
+            pages = [length]
+        else:
+            pages  = np.full((diff // self.PageSize).astype(np.uint64), 
+                    self.PageContent, np.uint64)
+            pages = np.append(first, pages)
+            modulo = (diff % self.PageSize).astype(np.uint64)
+            pages = np.append(pages,  np.array((modulo).astype(np.uint64)))
+            # correct the length because we lost with crc
+            pages[-1] = (pages[-1] + (len(pages)-2)*E57_PAGE_CRC).astype(
+                                                                    np.uint64) 
+            # maybe the last page is now to big
+            while (pages[-1] >= self.PageContent):
+                pages = np.append(pages,(pages[-1]
+                        -self.PageContent+E57_PAGE_CRC).astype(np.uint64))
+                pages[-2] = self.PageContent
+            # calc the real length
+            real_length = length + ((len(pages)-1)*E57_PAGE_CRC)
+            
+        self.position += real_length
+        self.position = int(self.position)
+        
+        # get content
+        content = bytearray()
+        offset = self.offset
+        for page in pages:
+            if (page>0):
+                if E57_DEBUG:
+                    print('Reading: ',page)
+                    content.extend(np.fromfile(self.filename, np.byte,
+                                                  count=int(page), 
+                                                  offset=offset))
+                    offset = np.sum([offset, 
+                                     page, 
+                                     E57_PAGE_CRC],
+                                     dtype=np.uint64)
+        
+        self.result = np.frombuffer(content, dtype=self.type)
+        self.validate()
+                                 
+    def setType(self):
+        self.type =  np.dtype(np.byte)
+        
+    def toXML(self):
+        return bytearray(self.result).decode('utf-8')
+
+    def setSize(self):
+        self.size = self.type.itemsize
+        
+    def isSingle(self):
+        return (self.count==1)
+
+    def __getitem__(self, key):
+        if self.isSingle:
+            return self.result[key][0]
+        else:
+            return self.result[key]
+            
+    def validate(self):
+        return None
+
+class E57Header(SegmentReader):
+
+    def setType(self):
+        self.type = np.dtype( [ ('fileSignature', np.dtype('S8')),
+        	 				 ('majorVersion', np.uint32),
+        					 ('minorVersion', np.uint32),
+        					 ('filePhysicalLength', np.uint64),
+        					 ('xmlPhysicalOffset', np.uint64),
+        					 ('xmlLogicalLength', np.uint64),
+        					 ('pageSize', np.uint64) ])
+
+
+class E57CompressedVectorSectionHeader(SegmentReader):
+    
+    def setType(self):
+        self.type = np.dtype( [ ('sectionId', np.uint8),                     
+    	                    ('reserved1', np.uint8, (7,)),
+    					    ('sectionLogicalLength', np.uint64),
+                            ('dataPhysicalOffset', np.uint64),
+                            ('indexPhysicalOffset', np.uint64) ] )
+                            
+    def validate(self):
+        if not (self['sectionId']==E57_COMPRESSED_VECTOR_SECTION):
+            raise ValueError('No compressed vector section.')
+        return True     
+
+class E57DataPacketHeader(SegmentReader):
+    
+    def setType(self):
+        self.type = np.dtype( [ ('packetType', np.uint8),
+    	                   ('packetFlags', np.uint8),
+    					   ('packetLogicalLengthMinus1', np.uint16),
+                           ('bytestreamCount', np.uint16) ] )
+                            
+    def validate(self):
+        if not (self['packetType']==E57_DATA_PACKET):
+            raise ValueError('No data packet.')
+        return True 
+
+class E57IndexPacketHeader(SegmentReader):
+    
+    def setType(self):
+        self.type = np.dtype( [ ('packetType', np.uint8),
+    	                  ('packetFlags', np.uint8),
+    					  ('packetLogicalLengthMinus1', np.uint16),
+                          ('entryCount', np.uint16),
+                          ('indexLevel', np.uint8),
+                          ('reserved1', np.uint8, (9,))])
+                            
+    def validate(self):
+        if not (self['packetType']==E57_INDEX_PACKET):
+            raise ValueError('No index packet.')
+        return True
+    
 # testing   
 # test data
 #http://www.libe57.org/data.html  
@@ -189,5 +289,8 @@ e57 = E57(str(Path.home())+'/Downloads/bunnyDouble.e57')
 #e57 = E57(str(Path.home())+'/Downloads/garage.e57')
 
 e57.extractCompressedVector()
+
+
+
 
 
