@@ -104,23 +104,30 @@ class E57:
         return E57IndexPacketHeader(self.filename, offset)                       
         
     def bitsNeeded(self, maximum, minimum):
-        # like the c variant ???
+        # like the c variant
+        log2 = 0
         state = maximum - minimum
         if ((0xFFFFFFFF00000000 & state)>0):
-            return 64
-        elif((0xFFFF0000 & state)>0):
-            return 32
-        elif((0xFF00 & state)>0):
-            return 16   
-        elif((0xF0 & state)>0):
-            return 8       
-        elif((0xC & state)>0):
-            return 4   
-        elif((0x2 & state)>0):
-            return 2     
-        elif((0x2 & state)>0):
-            return 1 
-        return None
+            state = state >> 32
+            log2+= 32
+        if((0xFFFF0000 & state)>0):
+            state = state >> 16
+            log+= 16
+        if((0x0FF00 & state)>0):
+            state = state >> 8
+            log2+= 8   
+        if((0xF0 & state)>0):
+            state = state >> 4
+            log2+= 4       
+        if((0xC & state)>0):
+            state = state >> 2
+            log2+= 2   
+        if((0x2 & state)>0):
+            state = state >> 1
+            log2+= 1     
+        if((0x1 & state)>0):
+            log2+= 1 
+        return log2
         
     def extractCompressedVector(self):
         data = self.findElement('data3D')
